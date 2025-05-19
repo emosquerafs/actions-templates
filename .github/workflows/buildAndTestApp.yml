@@ -6,11 +6,12 @@ on:
       NODE_VERSION:
         required: true        
         type: string
-    secrets:
       SONAR_TOKEN:
         required: false
+        type: string
       SONAR_HOST_URL:
         required: false
+        type: string
 
 jobs:
   build:
