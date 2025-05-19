@@ -7,11 +7,14 @@ on:
         required: true        
         type: string
       SONAR_TOKEN:
-        required: false
+        required: true
+        default: 'sqa_c62ddabcdc20090d8fca922d97e896976260d38c'
         type: string
       SONAR_HOST_URL:
-        required: false
+        required: true
+        default: 'http://186.145.138.81:9000'
         type: string
+
 
 jobs:
   build:
