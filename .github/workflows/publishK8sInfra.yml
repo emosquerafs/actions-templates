@@ -1,0 +1,61 @@
+name: Deploy K8s Infrastructure
+
+on:
+  workflow_call:
+    inputs:
+      ENVIRONMENT:
+        required: true
+        type: string
+      NODE_VERSION:
+        required: false
+        type: string
+    secrets:      
+      SSH_PRIVATE_KEY:
+        required: true
+
+jobs:
+  deploy-k8s:
+    name: Deploy K8s Infrastructure    
+    runs-on: ubuntu-latest
+    environment: ${{ github.ref == 'refs/heads/master' && 'production' || github.ref == 'refs/heads/staging' && 'staging' || 'development' }}        
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+            node-version: ${{ inputs.NODE_VERSION }}
+            cache: 'npm'
+            
+      - name: Get version from package.json
+        id: get_version
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "Version found: $VERSION"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" | tr -d '\r' > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          eval "$(ssh-agent -s)"
+          ssh-add ~/.ssh/id_rsa
+          ssh-keyscan github.com >> ~/.ssh/known_hosts
+          
+      - name: Deploy Version
+        env:
+          GIT_SSH_COMMAND: "ssh -i ~/.ssh/id_rsa"
+        run: |
+            echo Deploying version ${{ steps.get_version.outputs.version }} to environment ${{ inputs.ENVIRONMENT }}  
+            REPO_NAME="k8s-${{ github.event.repository.name }}"
+            git clone git@github.com:${{ github.repository_owner }}/${REPO_NAME}.git
+            cd ${REPO_NAME}
+            sed -i "s/    newTag:.*/    newTag: ${{ steps.get_version.outputs.version }}/g" resources/${{ inputs.ENVIRONMENT }}/kustomization.yaml          
+            git config user.name  ${{ github.actor }}
+            git config user.email "${{ github.actor }}@users.noreply.github.com"
+            git add .
+            git commit -m "Deploying Version ${{ steps.get_version.outputs.version }}"
+            git push

@@ -1,0 +1,60 @@
+name: Build Docker Image
+
+on:
+    workflow_call:
+        inputs:
+            NODE_VERSION:
+                required: false
+                type: string
+            AWS_ECR_HOST_URL:
+                required: false
+                type: string
+ 
+        secrets:
+            AWS_ACCESS_KEY_ID:
+                required: true
+            AWS_SECRET_ACCESS_KEY:
+                required: true
+            AWS_REGION:
+                required: false
+
+jobs:
+    build:
+        runs-on: ubuntu-latest
+        environment: ${{ github.ref == 'refs/heads/master' && 'production' || github.ref == 'refs/heads/staging' && 'staging' || 'development' }}
+        steps:
+          - name: Checkout code
+            uses: actions/checkout@v4
+
+          - name: Configure AWS credentials
+            uses: aws-actions/configure-aws-credentials@v4
+            with:
+              aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+              aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+              aws-region: ${{ secrets.AWS_REGION }}
+
+          - name: Login to Amazon ECR
+            uses: aws-actions/amazon-ecr-login@v2
+            id: login-ecr
+
+          - name: Setup Node.js
+            uses: actions/setup-node@v4
+            with:
+                node-version: ${{ inputs.NODE_VERSION }}
+                cache: 'npm'
+                
+          - name: Get version from package.json
+            id: get_version
+            run: |
+              VERSION=$(node -p "require('./package.json').version")
+              echo "Version found: $VERSION"
+              echo "version=$VERSION" >> $GITHUB_OUTPUT
+              
+          - name: Build and push Docker image
+            uses: docker/build-push-action@v5
+            with:
+              context: .
+              push: true
+              tags: |
+                503561436869.dkr.ecr.us-east-1.amazonaws.com/${{ github.event.repository.name }}:${{ steps.get_version.outputs.version }}
+                

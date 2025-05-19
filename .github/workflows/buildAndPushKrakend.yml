@@ -1,0 +1,77 @@
+name: Build And Push Kranked Image
+
+on:
+  workflow_call:
+    secrets:
+      AWS_ECR_HOST_URL:
+        required: true
+      AWS_ACCESS_KEY_ID:
+        required: true
+      AWS_SECRET_ACCESS_KEY:
+        required: true
+      AWS_REGION:
+        required: false
+      SSH_PRIVATE_KEY:
+        required: true
+
+jobs:
+  BuildAndPushDockerImage:
+    name: Build and Push Docker Image
+    runs-on: ubuntu-latest
+    environment: ${{ github.ref == 'refs/heads/master' && 'production' || github.ref == 'refs/heads/staging' && 'staging' || 'development' }}
+    env:
+      k8senv: ${{ github.ref == 'refs/heads/master' && 'production' || github.ref == 'refs/heads/staging' && 'staging' || 'develop' }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ secrets.AWS_REGION }}
+
+    - name: Login to Amazon ECR
+      uses: aws-actions/amazon-ecr-login@v2
+      id: login-ecr         
+        
+    - name: Getting Version
+      id: get_version
+      run: |
+        VERSION=$(head -n 1 version)
+        echo "Version found: $VERSION"
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        push: true
+        tags: |
+          ${{ secrets.AWS_ECR_HOST_URL }}/${{ github.event.repository.name }}:${{ steps.get_version.outputs.version }}
+    
+    - name: Configure SSH
+      run: |
+        mkdir -p ~/.ssh
+        echo "${{ secrets.SSH_PRIVATE_KEY }}" | tr -d '\r' > ~/.ssh/id_rsa
+        chmod 600 ~/.ssh/id_rsa
+        eval "$(ssh-agent -s)"
+        ssh-add ~/.ssh/id_rsa
+        ssh-keyscan github.com >> ~/.ssh/known_hosts
+      
+    - name: Deploy Version
+      env:
+        GIT_SSH_COMMAND: "ssh -i ~/.ssh/id_rsa"
+      run: |
+        echo Deploying version ${{ steps.get_version.outputs.version }} to environment ${{ env.k8senv }}  
+        REPO_NAME="k8s-${{ github.event.repository.name }}"
+        git clone git@github.com:${{ github.repository_owner }}/${REPO_NAME}.git
+        cd ${REPO_NAME}
+        sed -i "s/    newTag:.*/    newTag: ${{ steps.get_version.outputs.version }}/g" resources/${{ env.k8senv }}/kustomization.yaml          
+        git config user.name  ${{ github.actor }}
+        git config user.email "${{ github.actor }}@users.noreply.github.com"
+        git add .
+        git commit -m "Deploying Version ${{ steps.get_version.outputs.version }}"
+        git push
