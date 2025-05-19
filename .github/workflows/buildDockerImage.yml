@@ -11,6 +11,8 @@ on:
                 type: string
  
         secrets:
+            AWS_ECR_HOST_URL:
+                required: true
             AWS_ACCESS_KEY_ID:
                 required: true
             AWS_SECRET_ACCESS_KEY:
@@ -56,5 +58,5 @@ jobs:
               context: .
               push: true
               tags: |
-                503561436869.dkr.ecr.us-east-1.amazonaws.com/${{ github.event.repository.name }}:${{ steps.get_version.outputs.version }}
+                 ${{ secrets.AWS_ECR_HOST_URL }}/${{ github.event.repository.name }}:${{ steps.get_version.outputs.version }}
                 
